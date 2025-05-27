@@ -83,6 +83,17 @@ async def generate_note(request: EmailText):
             temperature=0.3,
             max_tokens=1000
         )
+        llm_generated_text = response.choices[0].message.content
+
+        # Add custom salutation and context before the generated note
+        header = (
+            "**Dear Raj and Anthony,**  \n\n"
+            "Our team has identified an opportunity from the potential client **Edwards Lifesciences**. "
+            "The scope involves **Assessment + Migration from UiPath to Microsoft Power Automate**. "
+            "I am sharing the details below for your reference:\n\n"
+        )
+
+        response_text = header + llm_generated_text
 
         return {"qualification_note": response.choices[0].message.content}
 
