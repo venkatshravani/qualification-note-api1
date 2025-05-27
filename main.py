@@ -4,7 +4,8 @@ import openai
 import uvicorn
 import logging
 import os
-from openai.error import OpenAIError
+from openai import OpenAIError
+
 
 # Azure OpenAI configuration
 openai.api_type = "azure"
@@ -41,7 +42,7 @@ class EmailText(BaseModel):
 @app.post("/generate-qualification-note")
 async def generate_qualification_note(request: EmailText):
     logging.info(f"Received email_text (first 50 chars): {request.email_text[:50]}...")
-    
+    systemprompt = "you are the assistant specific towards generating the qualification note."
     prompt = f"""
     Dear Team,
 
