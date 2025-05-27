@@ -1,7 +1,0 @@
-fastapi
-uvicorn[standard]
-gunicorn
-openai
-pydantic
-python-dotenv
-requests
