@@ -3,17 +3,19 @@ from pydantic import BaseModel, validator
 import openai
 import uvicorn
 import logging
+import os
+from openai.error import OpenAIError
 
 # Azure OpenAI configuration
 openai.api_type = "azure"
 openai.api_base = "https://qualification01.openai.azure.com/"
 openai.api_version = "2024-12-01-preview"
-import os
 
 api_key = os.getenv("AZURE_OPENAI_API_KEY")
 if not api_key:
     raise RuntimeError("AZURE_OPENAI_API_KEY environment variable is not set!")
 
+openai.api_key = api_key  # Don't forget to set the API key!
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -90,7 +92,7 @@ async def generate_qualification_note(request: EmailText):
         logging.info("OpenAI API call successful, returning qualification note.")
         return {"qualification_note": qualification_note}
 
-    except openai.error.OpenAIError as e:
+    except OpenAIError as e:
         logging.error(f"OpenAI API error: {e}")
         raise HTTPException(status_code=500, detail=f"OpenAI API error: {e}")
 
@@ -100,5 +102,6 @@ async def generate_qualification_note(request: EmailText):
 
 # Run locally
 if __name__ == "__main__":
-   uvicorn.run(app, host="0.0.0.0", port=8000) 
+   uvicorn.run(app, host="0.0.0.0", port=8000)
+
 
