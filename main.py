@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from typing import Optional
@@ -23,6 +24,19 @@ logger.info(f"Loaded deployment: {AZURE_DEPLOYMENT}")
 class QualificationNoteRequest(BaseModel):
     email_body: str
     attachment_text: Optional[str] = None
+
+def clean_text(text: str) -> str:
+    """Ensure UTF-8 encoding and remove smart quotes/special characters."""
+    if not text:
+        return ""
+    text = text.encode("utf-8", errors="ignore").decode("utf-8")
+    replacements = {
+        '\u2018': "'", '\u2019': "'", '\u201c': '"', '\u201d': '"',
+        '\u2013': '-', '\u2014': '-', '\u2026': '...'
+    }
+    for orig, repl in replacements.items():
+        text = text.replace(orig, repl)
+    return text
 
 @app.get("/")
 def root():
@@ -155,7 +169,7 @@ Formatting Rules:
 
 
 **Email Content:**
-\"\"\"{email_body.strip()}\"\"\"
+\"\"\"{email_body.strip()}\"\"\" 
 {attachment_section}
 """
     return prompt
@@ -163,7 +177,10 @@ Formatting Rules:
 @app.post("/generate-qualification-note")
 async def generate_qualification_note(payload: QualificationNoteRequest):
     try:
-        prompt = create_prompt(payload.email_body, payload.attachment_text)
+        email_body = clean_text(payload.email_body)
+        attachment_text = clean_text(payload.attachment_text) if payload.attachment_text else None
+
+        prompt = create_prompt(email_body, attachment_text)
 
         logger.info("Sending prompt to Azure OpenAI...")
 
@@ -179,7 +196,11 @@ async def generate_qualification_note(payload: QualificationNoteRequest):
 
         result = response["choices"][0]["message"]["content"]
         logger.info("Response generated successfully.")
-        return {"qualification_note": result}
+
+        return JSONResponse(
+            content={"qualification_note": result},
+            media_type="application/json; charset=utf-8"
+        )
 
     except Exception as e:
         logger.exception("Error while generating qualification note.")
