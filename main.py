@@ -17,16 +17,18 @@ os.environ["PYTHONIOENCODING"] = "utf-8"
 
 # Configure OpenAI client for Azure
 openai.api_type = "azure"
-openai.api_key = os.getenv("AZURE_OPENAI_KEY")
+openai.api_key = os.getenv("AZURE_OPENAI_API_KEY")
 openai.api_base = os.getenv("AZURE_OPENAI_ENDPOINT")
-openai.api_version = "2024-02-15-preview"
+openai.api_version = os.getenv("AZURE_OPENAI_API_VERSION")
+
+deployment_name = os.getenv("AZURE_DEPLOYMENT_NAME")
 
 app = FastAPI()
 
 # CORS setup
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Change for production
+    allow_origins=["*"],  # Change this in production for security
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -104,11 +106,16 @@ async def generate_note(request: OpportunityRequest):
         {"role": "user", "content": combined_input}
     ]
 
-    response = openai.ChatCompletion.create(
-        engine="gpt-4",  # your Azure deployment name here
-        messages=messages,
-        temperature=0.3,
-        max_tokens=1000
-    )
+    try:
+        response = openai.ChatCompletion.create(
+            engine=deployment_name,  # Use your deployment name here
+            messages=messages,
+            temperature=0.3,
+            max_tokens=1000
+        )
+    except openai.error.OpenAIError as e:
+        return {"error": f"OpenAI API error: {str(e)}"}
+    except Exception as e:
+        return {"error": f"Unexpected error: {str(e)}"}
 
     return {"qualification_note": response.choices[0].message["content"]}
