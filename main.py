@@ -6,6 +6,7 @@ from typing import Optional
 import openai
 import os
 import logging
+import json
 
 app = FastAPI()
 load_dotenv()
@@ -20,6 +21,10 @@ openai.api_key = os.getenv("AZURE_OPENAI_API_KEY")
 AZURE_DEPLOYMENT = os.getenv("AZURE_DEPLOYMENT_NAME")
 
 logger.info(f"Loaded deployment: {AZURE_DEPLOYMENT}")
+
+class UTF8JSONResponse(JSONResponse):
+    def render(self, content: any) -> bytes:
+        return json.dumps(content, ensure_ascii=False).encode("utf-8")
 
 class QualificationNoteRequest(BaseModel):
     email_body: str
@@ -169,7 +174,7 @@ Formatting Rules:
 
 
 **Email Content:**
-\"\"\"{email_body.strip()}\"\"\" 
+\"\"\"{email_body.strip()}\"\"\"
 {attachment_section}
 """
     return prompt
@@ -197,10 +202,7 @@ async def generate_qualification_note(payload: QualificationNoteRequest):
         result = response["choices"][0]["message"]["content"]
         logger.info("Response generated successfully.")
 
-        return JSONResponse(
-            content={"qualification_note": result},
-            media_type="application/json; charset=utf-8"
-        )
+        return UTF8JSONResponse(content={"qualification_note": result})
 
     except Exception as e:
         logger.exception("Error while generating qualification note.")
@@ -209,3 +211,4 @@ async def generate_qualification_note(payload: QualificationNoteRequest):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="127.0.0.1", port=8001, reload=True)
+
