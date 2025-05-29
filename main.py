@@ -1,49 +1,45 @@
-import sys
-import io
 import os
-from fastapi import FastAPI, HTTPException
+import openai
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from openai import AzureOpenAI
-import logging
+from dotenv import load_dotenv
+import sys
+import io
 
-# === Set UTF-8 encoding explicitly ===
+# Load environment variables
+load_dotenv()
+
+# Ensure UTF-8 encoding
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 os.environ["PYTHONIOENCODING"] = "utf-8"
 
-# === FastAPI app setup ===
+# Configure Azure OpenAI
+openai.api_type = "azure"
+openai.api_key = os.getenv("AZURE_OPENAI_KEY")
+openai.api_base = os.getenv("AZURE_OPENAI_ENDPOINT")
+openai.api_version = "2024-02-15-preview"
+
 app = FastAPI()
 
-# === CORS Middleware ===
+# Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Update to specific domains in production
+    allow_origins=["*"],  # Restrict this in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# === Request schema ===
-class QualificationRequest(BaseModel):
-    email_body: str
-    attachment_text: str
+# Pydantic schema
+class OpportunityRequest(BaseModel):
+    email_content: str
 
-# === Azure OpenAI Client Setup ===
-client = AzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    api_version="2024-02-15-preview",
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-)
-
-deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4")
-
-# === Route to Generate Qualification Note ===
-@app.post("/generate-qualification-note")
-def generate_qualification_note(request: QualificationRequest):
-    try:
-        # === Enhanced Prompt ===
-        prompt = f"""
+# API route
+@app.post("/generate-qualification-note/")
+async def generate_note(request: OpportunityRequest):
+    prompt = """
 System Instruction:
 
 You are an assistant dedicated to generating structured, opportunity-specific Qualification Notes for bid teams. Your role is to extract details from the opportunity input provided and format the content into a well-defined output note. Follow the structure and tone precisely. Strictly do not hallucinate. Follow all the instructions mentioned.
@@ -98,37 +94,20 @@ Value: (1-line justification)
 Urgency: (1-line justification)
 
 Avoid generic statements. Use precise, client-facing tone. Do not assume or hallucinate. Extract only from input.
+""".strip()
 
-EMAIL BODY:
-{request.email_body}
+    messages = [
+        {"role": "system", "content": prompt},
+        {"role": "user", "content": request.email_content}
+    ]
 
-ATTACHMENT TEXT:
-{request.attachment_text}
-"""
-
-        # === OpenAI Call ===
-        response = client.chat.completions.create(
-            model=deployment_name,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are an assistant that strictly generates structured qualification notes based only on the input below. Never hallucinate or assume. Follow formatting rules exactly."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            temperature=0.3
+    try:
+        response = openai.ChatCompletion.create(
+            engine="gpt-4",  # Use your deployed model name
+            messages=messages,
+            temperature=0.3,
+            max_tokens=1000
         )
-
-        qualification_note = response.choices[0].message.content.strip()
-        qualification_note = qualification_note.encode("utf-8", "ignore").decode("utf-8")
-
-        return {"qualification_note": qualification_note}
-
+        return {"qualification_note": response.choices[0].message["content"]}
     except Exception as e:
-        logging.exception("Error generating qualification note")
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
-
-
+        return {"error": str(e)}
