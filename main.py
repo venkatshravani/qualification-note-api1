@@ -1,121 +1,159 @@
 import os
-import sys
+
 import io
-import openai
-from fastapi import FastAPI
+
+import sys
+
+import logging
+
+from fastapi import FastAPI, HTTPException
+
 from fastapi.middleware.cors import CORSMiddleware
+
+from fastapi.responses import JSONResponse
+
 from pydantic import BaseModel
+
 from dotenv import load_dotenv
 
-# Load environment variables
+import openai
+ 
+# 1. Enforce UTF-8 on stdout/stderr
+
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+ 
+# 2. Load env vars
+
 load_dotenv()
 
-# Set UTF-8 encoding explicitly
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
-os.environ["PYTHONIOENCODING"] = "utf-8"
+openai.api_type    = "azure"
 
-# Configure OpenAI client for Azure
-openai.api_type = "azure"
-openai.api_key = os.getenv("AZURE_OPENAI_API_KEY")
-openai.api_base = os.getenv("AZURE_OPENAI_ENDPOINT")
+openai.api_key     = os.getenv("AZURE_OPENAI_API_KEY")
+
+openai.api_base    = os.getenv("AZURE_OPENAI_ENDPOINT")
+
 openai.api_version = os.getenv("AZURE_OPENAI_API_VERSION")
 
-deployment_name = os.getenv("AZURE_DEPLOYMENT_NAME")
-
+deployment_name    = os.getenv("AZURE_DEPLOYMENT_NAME")
+ 
 app = FastAPI()
+ 
+# 3. CORS middleware
 
-# CORS setup
 app.add_middleware(
+
     CORSMiddleware,
-    allow_origins=["*"],  # Change this in production for security
+
+    allow_origins=["*"],  # tighten in prod
+
     allow_credentials=True,
+
     allow_methods=["*"],
+
     allow_headers=["*"],
+
 )
+ 
+# 4. Request schema
 
 class OpportunityRequest(BaseModel):
+
     email_content: str
-    attachment_text: str | None = None  # Optional attachment text
 
-prompt = """
+    attachment_text: str | None = None
+ 
+# 5. ASCII-only system prompt
+
+SYSTEM_PROMPT = """
+
 System Instruction:
+ 
+You are an assistant generating structured, opportunity-specific Qualification Notes.
+ 
+Format:
 
-You are an assistant dedicated to generating structured, opportunity-specific Qualification Notes for bid teams. Your role is to extract details from the opportunity input provided and format the content into a well-defined output note. Follow the structure and tone precisely. Strictly do not hallucinate. Follow all the instructions mentioned.
+- Introductory Sentence
 
-Important Note:
--> Do not create or infer any information that is not clearly stated in the input, unless explicitly permitted.
--> Do not replace, rename, or hallucinate the customer name. Use the exact name provided in the input.
+- Customer Overview
 
-Format the output in the following structure:
+- Customer Details (bullets)
+
+- Opportunity Overview
+
+- Key Highlights (bullets)
+
+- Timeline (bullets if available)
+ 
+Start with:
 
 Dear Raj and Anthony,
+ 
+Sections:
 
-Our team has identified an opportunity from potential client [Customer Name]
+1. Customer Overview
 
-[Opportunity Name or Title], [Opportunity ID]
+2. Opportunity Summary (3-4 bullets from input)
 
-sharing the details as below for your reference:
+3. Engagement Scope (bullets)
 
-**Customer Overview**  
-(See logic below)
+4. Timeline
 
-**Customer Details**
-- Bullet points if provided
+5. Key Highlights
 
-**Opportunity Overview**
-- Nature of engagement  
-- Client’s goal  
-- Expected deliverables  
-- Urgency, timing, or business context
+6. Qualification Scoring
+ 
+Use bold headers, formal tone, and bullet points. Do not hallucinate.
 
-**Engagement Scope**
-- Stated or implied scope  
-- Tools, platforms, stages (if mentioned)
-
-**Timeline**
-- Extracted timeline/milestones (if available)
-
-**Key Highlights**
-
-Business Drivers:
-- Reasons for engagement
-
-Technology Preferences:
-- Named tools/platforms
-
-Existing Tools or Processes:
-- Current state
-
-**Qualification Scoring**
-Clarity: (1-line justification)  
-Value: (1-line justification)  
-Urgency: (1-line justification)
-
-Avoid generic statements. Use precise, client-facing tone. Do not assume or hallucinate. Extract only from input.
 """
-
+ 
 @app.post("/generate-qualification-note/")
-async def generate_note(request: OpportunityRequest):
-    combined_input = request.email_content
-    if request.attachment_text:
-        combined_input += "\n\nAttachment Content:\n" + request.attachment_text
 
+async def generate_note(req: OpportunityRequest):
+
+    combined = req.email_content
+
+    if req.attachment_text:
+
+        combined += f"\n\nAttachment Content:\n{req.attachment_text}"
+ 
     messages = [
-        {"role": "system", "content": prompt},
-        {"role": "user", "content": combined_input}
+
+        {"role": "system",  "content": SYSTEM_PROMPT},
+
+        {"role": "user",    "content": combined},
+
     ]
-
+ 
     try:
-        response = openai.ChatCompletion.create(
-            engine=deployment_name,  # Use your deployment name here
-            messages=messages,
-            temperature=0.3,
-            max_tokens=1000
-        )
-    except openai.error.OpenAIError as e:
-        return {"error": f"OpenAI API error: {str(e)}"}
-    except Exception as e:
-        return {"error": f"Unexpected error: {str(e)}"}
 
-    return {"qualification_note": response.choices[0].message["content"]}
+        resp = openai.ChatCompletion.create(
+
+            engine=deployment_name,
+
+            messages=messages,
+
+            temperature=0.3,
+
+            max_tokens=1500
+
+        )
+
+        note = resp.choices[0].message["content"]
+
+        return JSONResponse(content={"qualification_note": note})
+ 
+    except openai.error.OpenAIError:
+
+        logging.exception("OpenAI API error")
+
+        raise HTTPException(status_code=502, detail="Failed to generate qualification note.")
+ 
+    except Exception:
+
+        logging.exception("Unexpected error")
+
+        raise HTTPException(status_code=500, detail="Internal server error.")
+
+ 
